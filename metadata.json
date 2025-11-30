@@ -1,0 +1,7 @@
+{
+  "name": "CashFlow Pro",
+  "description": "A professional daily cash tracking ledger for SMBs with multi-business support, receipt scanning, and detailed analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
