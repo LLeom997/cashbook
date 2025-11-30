@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { BusinessWithTotals, User } from '../types';
-import { getBusinesses, createBusiness, joinBusiness } from '../services/storage';
-import { PlusIcon } from '../components/Icons';
+import { getBusinesses, createBusiness, updateBusiness, deleteBusiness, joinBusiness } from '../services/storage';
+import { PlusIcon, PencilIcon, TrashIcon } from '../components/Icons';
 
 interface Props {
   user: User;
@@ -21,6 +21,15 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
   const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  
+  // Edit Mode State
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [businessToDelete, setBusinessToDelete] = useState<{id: string, name: string} | null>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   const loadData = async () => {
     setLoading(true);
@@ -43,16 +52,64 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
     if (!newBizName) return;
     setError('');
     
-    const { data, error: createError } = await createBusiness(user.id, newBizName);
+    if (editingId) {
+        // Update Mode
+        const { error: updateError } = await updateBusiness(editingId, newBizName);
+        if (updateError) {
+            setError(updateError);
+            return;
+        }
+        setNewBizName('');
+        setEditingId(null);
+        setShowAddModal(false);
+        loadData();
+    } else {
+        // Create Mode
+        const { data, error: createError } = await createBusiness(user.id, newBizName);
+        if (createError) {
+            setError(createError);
+            return;
+        }
+        if (data) {
+            setNewBizName('');
+            setShowAddModal(false);
+            loadData();
+        }
+    }
+  };
+
+  const handleEditClick = (b: BusinessWithTotals, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNewBizName(b.name);
+    setEditingId(b.id);
+    setActiveTab('CREATE');
+    setError('');
+    setShowAddModal(true);
+  };
+
+  const handleDeleteClick = (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBusinessToDelete({ id, name });
+    setDeleteConfirmationName('');
+    setDeleteError('');
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!businessToDelete) return;
     
-    if (createError) {
-        setError(createError);
-        return;
+    if (deleteConfirmationName !== businessToDelete.name) {
+      setDeleteError('Name does not match.');
+      return;
     }
 
-    if (data) {
-        setNewBizName('');
-        setShowAddModal(false);
+    const { error } = await deleteBusiness(businessToDelete.id);
+    if (error) {
+        setDeleteError(error);
+    } else {
+        setShowDeleteModal(false);
+        setBusinessToDelete(null);
         loadData();
     }
   };
@@ -85,6 +142,7 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
       setSuccessMsg('');
       setNewBizName('');
       setJoinCode('');
+      setEditingId(null);
       setActiveTab('CREATE');
   }
 
@@ -124,6 +182,12 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
 
         <div className="flex justify-between items-center mt-8">
           <h3 className="text-lg font-semibold text-gray-800">My Businesses</h3>
+          <button 
+            onClick={() => { setActiveTab('JOIN'); setShowAddModal(true); }}
+            className="text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors"
+          >
+            Join with Code
+          </button>
         </div>
 
         {loading ? (
@@ -131,10 +195,10 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {businesses.map(b => (
-              <button
+              <div
                 key={b.id}
                 onClick={() => onSelectBusiness(b.id)}
-                className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow text-left group relative"
+                className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow text-left group relative cursor-pointer flex flex-col justify-between"
               >
                 {b.isShared && (
                   <div className="absolute top-3 right-3 flex flex-col items-end">
@@ -148,20 +212,50 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
                     )}
                   </div>
                 )}
-                <div className="flex justify-between items-start">
-                  <div className="pr-12">
-                    <h4 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate">{b.name}</h4>
-                    <p className="text-sm text-gray-500 mt-1">{b.bookCount} Books</p>
+                
+                <div className="flex justify-between items-start mb-2">
+                  <div className="pr-2">
+                    <h4 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate max-w-[180px]">{b.name}</h4>
+                    <p className="text-sm text-gray-500 mt-0.5">{b.bookCount} Books</p>
                   </div>
-                  <span className={`text-sm font-bold px-2 py-1 rounded-md ${b.balance >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                    {formatCurrency(b.balance)}
-                  </span>
+                  {!b.isShared && (
+                    <span className={`text-sm font-bold px-2 py-1 rounded-md ${b.balance >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {formatCurrency(b.balance)}
+                    </span>
+                  )}
+                  {b.isShared && (
+                    <span className={`text-sm font-bold px-2 py-1 rounded-md mt-6 ${b.balance >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                        {formatCurrency(b.balance)}
+                    </span>
+                  )}
                 </div>
-                <div className="mt-4 flex space-x-4 text-xs text-gray-500">
-                  <span>In: <span className="text-green-600 font-medium">{formatCurrency(b.totalIn)}</span></span>
-                  <span>Out: <span className="text-red-600 font-medium">{formatCurrency(b.totalOut).replace('-', '')}</span></span>
+
+                <div className="mt-4 flex justify-between items-end">
+                  <div className="flex space-x-4 text-xs text-gray-500">
+                    <span>In: <span className="text-green-600 font-medium">{formatCurrency(b.totalIn)}</span></span>
+                    <span>Out: <span className="text-red-600 font-medium">{formatCurrency(b.totalOut).replace('-', '')}</span></span>
+                  </div>
+
+                  {!b.isShared && (
+                     <div className="flex space-x-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                        <button 
+                            onClick={(e) => handleEditClick(b, e)} 
+                            className="p-1.5 text-gray-400 hover:text-blue-600 bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Edit Name"
+                        >
+                            <PencilIcon className="w-4 h-4" />
+                        </button>
+                        <button 
+                            onClick={(e) => handleDeleteClick(b.id, b.name, e)} 
+                            className="p-1.5 text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete Business"
+                        >
+                            <TrashIcon className="w-4 h-4" />
+                        </button>
+                     </div>
+                  )}
                 </div>
-              </button>
+              </div>
             ))}
             
             {businesses.length === 0 && (
@@ -175,7 +269,7 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
 
       {/* FAB */}
       <button
-        onClick={() => setShowAddModal(true)}
+        onClick={() => { setActiveTab('CREATE'); setEditingId(null); setNewBizName(''); setShowAddModal(true); }}
         className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-4 focus:ring-blue-300"
       >
         <PlusIcon />
@@ -186,21 +280,27 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm">
             
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200 mb-6">
-                <button 
-                    onClick={() => { setActiveTab('CREATE'); setError(''); }}
-                    className={`flex-1 pb-2 text-sm font-semibold border-b-2 ${activeTab === 'CREATE' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}
-                >
-                    Create New
-                </button>
-                <button 
-                    onClick={() => { setActiveTab('JOIN'); setError(''); }}
-                    className={`flex-1 pb-2 text-sm font-semibold border-b-2 ${activeTab === 'JOIN' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}
-                >
-                    Join Existing
-                </button>
-            </div>
+            {/* Tabs (Hide if editing) */}
+            {!editingId && (
+                <div className="flex border-b border-gray-200 mb-6">
+                    <button 
+                        onClick={() => { setActiveTab('CREATE'); setError(''); }}
+                        className={`flex-1 pb-2 text-sm font-semibold border-b-2 ${activeTab === 'CREATE' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}
+                    >
+                        Create New
+                    </button>
+                    <button 
+                        onClick={() => { setActiveTab('JOIN'); setError(''); }}
+                        className={`flex-1 pb-2 text-sm font-semibold border-b-2 ${activeTab === 'JOIN' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}
+                    >
+                        Join Existing
+                    </button>
+                </div>
+            )}
+            
+            {editingId && (
+                <h3 className="text-lg font-bold mb-4">Edit Business</h3>
+            )}
 
             {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
             {successMsg && <p className="text-sm text-green-600 mb-3">{successMsg}</p>}
@@ -228,7 +328,7 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
                         disabled={!newBizName}
                         className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
                         >
-                        Create
+                        {editingId ? 'Update' : 'Create'}
                         </button>
                     </div>
                 </form>
@@ -262,6 +362,51 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
                     </div>
                 </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && businessToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-red-600 mb-2">Delete Business?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This action cannot be undone. All books and transactions inside <strong>{businessToDelete.name}</strong> will be permanently deleted.
+            </p>
+            
+            <form onSubmit={confirmDelete}>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Type <span className="font-bold select-all">{businessToDelete.name}</span> to confirm
+              </label>
+              <input
+                autoFocus
+                type="text"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-red-500 border-red-200 bg-red-50"
+                value={deleteConfirmationName}
+                onChange={e => setDeleteConfirmationName(e.target.value)}
+                placeholder={businessToDelete.name}
+              />
+              
+              {deleteError && <p className="text-sm text-red-600 mb-3">{deleteError}</p>}
+
+              <div className="flex justify-end space-x-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteModal(false); setBusinessToDelete(null); }}
+                  className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleteConfirmationName !== businessToDelete.name}
+                  className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Delete Forever
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

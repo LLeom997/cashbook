@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { BusinessWithTotals, BookWithTotals, User } from '../types';
-import { getBusiness, getBooks, createBook, getBusinessMembers, rotateBusinessCode, getCurrentUser } from '../services/storage';
-import { PlusIcon, ChevronLeftIcon, DownloadIcon, CopyIcon, RefreshIcon } from '../components/Icons';
+import { getBusiness, getBooks, createBook, updateBook, deleteBook, getBusinessMembers, rotateBusinessCode, getCurrentUser } from '../services/storage';
+import { PlusIcon, ChevronLeftIcon, DownloadIcon, CopyIcon, RefreshIcon, PencilIcon, TrashIcon } from '../components/Icons';
 
 interface Props {
   businessId: string;
@@ -20,6 +20,7 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
   
   // Form State
   const [newBookName, setNewBookName] = useState('');
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
   
@@ -78,17 +79,40 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
     if (!newBookName) return;
     setError('');
     
-    const { data, error: createError } = await createBook(businessId, newBookName);
-    
-    if (createError) {
-        setError(createError);
-        return;
+    if (editingBookId) {
+        const { error } = await updateBook(editingBookId, newBookName);
+        if (error) {
+             setError(error);
+             return;
+        }
+    } else {
+        const { data, error: createError } = await createBook(businessId, newBookName);
+        if (createError) {
+            setError(createError);
+            return;
+        }
     }
+    
+    setNewBookName('');
+    setEditingBookId(null);
+    setShowAddBookModal(false);
+    loadData();
+  };
 
-    if (data) {
-        setNewBookName('');
-        setShowAddBookModal(false);
-        loadData();
+  const handleEditBook = (b: BookWithTotals, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNewBookName(b.name);
+    setEditingBookId(b.id);
+    setError('');
+    setShowAddBookModal(true);
+  };
+
+  const handleDeleteBook = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete book "${name}"? All transactions inside it will be permanently lost.`)) {
+      const { error } = await deleteBook(id);
+      if (error) alert(error);
+      else loadData();
     }
   };
 
@@ -230,10 +254,10 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
         
         <div className="space-y-3">
           {books.map(book => (
-             <button
+             <div
               key={book.id}
               onClick={() => onSelectBook(book.id)}
-              className="w-full bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all flex justify-between items-center group"
+              className="w-full bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-all flex justify-between items-center group cursor-pointer relative"
              >
                <div className="text-left">
                  <h4 className="font-semibold text-gray-900 text-lg group-hover:text-blue-600">{book.name}</h4>
@@ -244,7 +268,25 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
                    {formatCurrency(book.balance)}
                  </span>
                </div>
-             </button>
+
+               {/* Edit/Delete Actions */}
+               <div className="absolute top-4 right-4 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white pl-2">
+                   <button 
+                    onClick={(e) => handleEditBook(book, e)} 
+                    className="p-1.5 text-gray-300 hover:text-blue-600 rounded-md hover:bg-blue-50 transition-colors"
+                    title="Edit Book Name"
+                   >
+                       <PencilIcon className="w-5 h-5" />
+                   </button>
+                   <button 
+                    onClick={(e) => handleDeleteBook(book.id, book.name, e)} 
+                    className="p-1.5 text-gray-300 hover:text-red-600 rounded-md hover:bg-red-50 transition-colors"
+                    title="Delete Book"
+                   >
+                       <TrashIcon className="w-5 h-5" />
+                   </button>
+               </div>
+             </div>
           ))}
           {books.length === 0 && (
              <div className="text-center py-10 text-gray-400">
@@ -256,17 +298,17 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
 
       {/* FAB */}
       <button
-        onClick={() => setShowAddBookModal(true)}
+        onClick={() => { setEditingBookId(null); setNewBookName(''); setShowAddBookModal(true); }}
         className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-colors focus:outline-none focus:ring-4 focus:ring-blue-300"
       >
         <PlusIcon />
       </button>
 
-      {/* Add Book Modal */}
+      {/* Add/Edit Book Modal */}
       {showAddBookModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">New Book</h3>
+            <h3 className="text-lg font-bold mb-4">{editingBookId ? 'Edit Book' : 'New Book'}</h3>
             {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
             <form onSubmit={handleAddBook}>
               <input
@@ -290,7 +332,7 @@ export const BusinessDetailView = ({ businessId, onBack, onSelectBook }: Props) 
                   disabled={!newBookName}
                   className="px-4 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Create
+                  {editingBookId ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>

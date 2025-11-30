@@ -212,6 +212,38 @@ export const createBusiness = async (userId: string, name: string): Promise<{ da
   };
 };
 
+export const updateBusiness = async (id: string, name: string): Promise<{ error: string | null }> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { error: "Session expired" };
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ name })
+    .eq('id', id);
+
+  if (error) {
+    console.error("Update Business Error", error);
+    return { error: error.message };
+  }
+  return { error: null };
+};
+
+export const deleteBusiness = async (id: string): Promise<{ error: string | null }> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { error: "Session expired" };
+
+  const { error } = await supabase
+    .from('projects')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error("Delete Business Error", error);
+    return { error: error.message };
+  }
+  return { error: null };
+};
+
 export const joinBusiness = async (code: string): Promise<{ success: boolean; message: string }> => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return { success: false, message: "Session expired" };
@@ -372,6 +404,38 @@ export const createBook = async (businessId: string, name: string): Promise<{ da
     },
     error: null
   };
+};
+
+export const updateBook = async (id: string, name: string): Promise<{ error: string | null }> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { error: "Session expired" };
+
+  const { error } = await supabase
+    .from('ledgers')
+    .update({ name })
+    .eq('id', id);
+
+  if (error) {
+    console.error("Update Book Error", error);
+    return { error: error.message };
+  }
+  return { error: null };
+};
+
+export const deleteBook = async (id: string): Promise<{ error: string | null }> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { error: "Session expired" };
+
+  const { error } = await supabase
+    .from('ledgers')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error("Delete Book Error", error);
+    return { error: error.message };
+  }
+  return { error: null };
 };
 
 // --- Transactions (Entries) ---
