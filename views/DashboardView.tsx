@@ -7,10 +7,11 @@ import { PlusIcon, PencilIcon, TrashIcon } from '../components/Icons';
 interface Props {
   user: User;
   onSelectBusiness: (id: string) => void;
+  onSelectBook?: (businessId: string, bookId: string) => void; // Optional for direct linking
   onLogout: () => void;
 }
 
-export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
+export const DashboardView = ({ user, onSelectBusiness, onSelectBook, onLogout }: Props) => {
   const [businesses, setBusinesses] = useState<BusinessWithTotals[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -229,6 +230,31 @@ export const DashboardView = ({ user, onSelectBusiness, onLogout }: Props) => {
                     </span>
                   )}
                 </div>
+
+                {/* Quick Ledger Links */}
+                {b.books && b.books.length > 0 && (
+                  <div className="my-3 pt-3 border-t border-gray-100">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-2">Quick Access</p>
+                    <div className="flex flex-wrap gap-2">
+                      {b.books.slice(0, 3).map(book => (
+                        <button
+                          key={book.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onSelectBook) onSelectBook(b.id, book.id);
+                            else onSelectBusiness(b.id); // Fallback
+                          }}
+                          className="text-xs bg-gray-50 hover:bg-blue-50 text-gray-600 hover:text-blue-600 px-2 py-1 rounded border border-gray-200 transition-colors truncate max-w-[120px]"
+                        >
+                          {book.name}
+                        </button>
+                      ))}
+                      {b.books.length > 3 && (
+                        <span className="text-xs text-gray-400 px-1 py-1">+{b.books.length - 3} more</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-4 flex justify-between items-end">
                   <div className="flex space-x-4 text-xs text-gray-500">

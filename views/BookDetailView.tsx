@@ -3,7 +3,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { BookWithTotals, TransactionWithBalance, TransactionType, Transaction } from '../types';
 import { getBookTotals, getTransactionsWithBalance, addTransaction, deleteTransaction, updateTransaction } from '../services/storage';
 import { uploadToCloudinary } from '../services/cloudinary';
-import { ChevronLeftIcon, DownloadIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon, CameraIcon, PencilIcon } from '../components/Icons';
+import { ChevronLeftIcon, DownloadIcon, FilterIcon, PlusIcon, SearchIcon, TrashIcon, CameraIcon, PencilIcon, XIcon } from '../components/Icons';
+import { ModernDatePicker, ModernTimePicker } from '../components/ModernDateTime';
 
 interface Props {
   bookId: string;
@@ -19,6 +20,7 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const [filterTag, setFilterTag] = useState('ALL');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
   const [showFilters, setShowFilters] = useState(false);
@@ -28,6 +30,12 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
   const [amount, setAmount] = useState('');
   const [txType, setTxType] = useState<TransactionType>(TransactionType.OUT);
   const [note, setNote] = useState('');
+  const [partyName, setPartyName] = useState('');
+  
+  // Tagging State
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+
   const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0]);
   const [txTime, setTxTime] = useState(new Date().toTimeString().split(' ')[0].substr(0, 5));
   const [attachment, setAttachment] = useState<string>('');
@@ -55,25 +63,47 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
     loadData();
   }, [bookId]);
 
+  // Derive unique tags from existing transactions
+  const uniqueTags = useMemo(() => {
+      const allTags = new Set<string>();
+      transactions.forEach(t => {
+          if (t.category) {
+              t.category.split(',').forEach(tag => {
+                  const clean = tag.trim();
+                  if (clean) allTags.add(clean);
+              });
+          }
+      });
+      return Array.from(allTags).sort();
+  }, [transactions]);
+
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       const matchesSearch = t.note.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                            t.amount.toString().includes(searchTerm);
+                            t.amount.toString().includes(searchTerm) ||
+                            (t.partyName && t.partyName.toLowerCase().includes(searchTerm.toLowerCase()));
+      
       const matchesType = filterType === 'ALL' || t.type === filterType;
+      
+      const txTags = t.category ? t.category.split(',').map(s => s.trim()) : [];
+      const matchesTag = filterTag === 'ALL' || txTags.includes(filterTag);
       
       let matchesDate = true;
       if (dateStart && t.date < dateStart) matchesDate = false;
       if (dateEnd && t.date > dateEnd) matchesDate = false;
 
-      return matchesSearch && matchesType && matchesDate;
+      return matchesSearch && matchesType && matchesDate && matchesTag;
     });
-  }, [transactions, searchTerm, filterType, dateStart, dateEnd]);
+  }, [transactions, searchTerm, filterType, filterTag, dateStart, dateEnd]);
 
   const openAddModal = (type: TransactionType) => {
       setEditingTxId(null);
       setAmount('');
       setTxType(type);
       setNote('');
+      setPartyName('');
+      setTags([]);
+      setTagInput('');
       setTxDate(new Date().toISOString().split('T')[0]);
       setTxTime(new Date().toTimeString().split(' ')[0].substr(0, 5));
       setAttachment('');
@@ -85,16 +115,50 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
       setAmount(tx.amount.toString());
       setTxType(tx.type);
       setNote(tx.note);
+      setPartyName(tx.partyName || '');
+      setTags(tx.category ? tx.category.split(',').filter(t => t.trim()) : []);
+      setTagInput('');
       setTxDate(tx.date);
       setTxTime(tx.time);
       setAttachment(tx.attachmentUrl || '');
       setShowAddModal(true);
   };
 
+  const handleTagKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === ' ' || e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        const val = tagInput.trim();
+        if (val && !tags.includes(val)) {
+            setTags([...tags, val]);
+        }
+        setTagInput('');
+    } else if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+        setTags(tags.slice(0, -1));
+    }
+  };
+
+  const removeTag = (tagToRemove: string) => {
+      setTags(tags.filter(t => t !== tagToRemove));
+  };
+
+  const addSuggestedTag = (tag: string) => {
+      if (!tags.includes(tag)) {
+          setTags([...tags, tag]);
+      }
+      setTagInput('');
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount) return;
     
+    // Auto-add text in input if user didn't press space
+    let finalTags = [...tags];
+    const pendingTag = tagInput.trim();
+    if (pendingTag && !finalTags.includes(pendingTag)) {
+        finalTags.push(pendingTag);
+    }
+
     setIsSubmitting(true);
     try {
       let result;
@@ -104,6 +168,8 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
           date: txDate,
           time: txTime,
           note,
+          partyName,
+          category: finalTags.join(','),
           attachmentUrl: attachment
       };
 
@@ -112,7 +178,7 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
               id: editingTxId,
               bookId,
               ...commonData,
-              createdAt: 0 // Not updated, but needed for type matching
+              createdAt: 0 // Not updated
           });
       } else {
           result = await addTransaction({
@@ -201,7 +267,7 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
           <div className="relative">
             <input
               type="text"
-              placeholder="Search by note or amount..."
+              placeholder="Search by party, note or amount..."
               className="w-full bg-gray-100 border-none rounded-lg pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-500"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -224,6 +290,28 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
                    </button>
                  ))}
               </div>
+              
+              {/* Tag Filters */}
+              {uniqueTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setFilterTag('ALL')}
+                        className={`text-xs px-2 py-1 rounded border ${filterTag === 'ALL' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}
+                      >
+                          All Tags
+                      </button>
+                      {uniqueTags.map(tag => (
+                          <button
+                            key={tag}
+                            onClick={() => setFilterTag(tag)}
+                            className={`text-xs px-2 py-1 rounded border ${filterTag === tag ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}
+                          >
+                              {tag}
+                          </button>
+                      ))}
+                  </div>
+              )}
+
               <div className="flex space-x-2">
                 <input 
                   type="date" 
@@ -281,8 +369,27 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
               <div className="bg-white rounded-lg p-3 shadow-sm border border-gray-100 flex flex-col relative group print:break-inside-avoid">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                     <p className="font-medium text-gray-900 text-base">{tx.note || 'No description'}</p>
-                     <p className="text-xs text-gray-400 mt-1">{tx.time} • Balance: {formatCurrency(tx.runningBalance)}</p>
+                     {/* Party Name Prominently */}
+                     {tx.partyName && (
+                         <p className="font-bold text-gray-900 text-base mb-0.5">{tx.partyName}</p>
+                     )}
+                     
+                     {/* Note */}
+                     <p className={`${tx.partyName ? 'text-sm text-gray-600' : 'font-medium text-gray-900 text-base'}`}>
+                         {tx.note || (tx.partyName ? '' : 'No description')}
+                     </p>
+                     
+                     <div className="flex items-center flex-wrap gap-2 mt-1">
+                        <span className="text-xs text-gray-400">{tx.time}</span>
+                        {/* Multiple Tags Display */}
+                        {tx.category && tx.category.split(',').map(tag => (
+                            <span key={tag} className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium uppercase tracking-wide">
+                                {tag}
+                            </span>
+                        ))}
+                        <span className="text-xs text-gray-400">• Bal: {formatCurrency(tx.runningBalance)}</span>
+                     </div>
+                     
                      {tx.attachmentUrl && (
                        <div className="mt-2">
                          <a href={tx.attachmentUrl} target="_blank" rel="noopener noreferrer">
@@ -343,125 +450,189 @@ export const BookDetailView = ({ bookId, onBack }: Props) => {
       {/* Add/Edit Transaction Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-          <div className="bg-white rounded-t-2xl sm:rounded-xl p-6 w-full max-w-md animate-slide-up sm:animate-none">
-            <h3 className="text-lg font-bold mb-4 flex items-center">
-              <span className={`w-3 h-3 rounded-full mr-2 ${txType === TransactionType.IN ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              {editingTxId ? 'Edit Transaction' : (txType === TransactionType.IN ? 'New Cash In' : 'New Cash Out')}
-            </h3>
+          <div className="flex flex-col max-h-[90dvh] bg-white rounded-t-2xl sm:rounded-xl w-full max-w-md animate-slide-up sm:animate-none shadow-xl">
             
-            <form onSubmit={handleAddSubmit} className="space-y-4">
-              {/* Type Switcher */}
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                 <button
-                   type="button"
-                   onClick={() => setTxType(TransactionType.IN)}
-                   className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${txType === TransactionType.IN ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500'}`}
-                 >
-                   Cash In (+)
-                 </button>
-                 <button
-                   type="button"
-                   onClick={() => setTxType(TransactionType.OUT)}
-                   className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${txType === TransactionType.OUT ? 'bg-white text-red-700 shadow-sm' : 'text-gray-500'}`}
-                 >
-                   Cash Out (-)
-                 </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-gray-400 font-bold">₹</span>
-                  <input
-                    autoFocus
-                    type="number"
-                    step="0.01"
-                    required
-                    className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                    placeholder="0.00"
-                  />
+            {/* Header */}
+            <div className="flex-none p-6 pb-2">
+                <h3 className="text-lg font-bold flex items-center">
+                <span className={`w-3 h-3 rounded-full mr-2 ${txType === TransactionType.IN ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                {editingTxId ? 'Edit Transaction' : (txType === TransactionType.IN ? 'New Cash In' : 'New Cash Out')}
+                </h3>
+            </div>
+            
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-6 pt-2">
+                <form id="transaction-form" onSubmit={handleAddSubmit} className="space-y-4">
+                {/* Type Switcher */}
+                <div className="flex bg-gray-100 rounded-lg p-1">
+                    <button
+                    type="button"
+                    onClick={() => setTxType(TransactionType.IN)}
+                    className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${txType === TransactionType.IN ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500'}`}
+                    >
+                    Cash In (+)
+                    </button>
+                    <button
+                    type="button"
+                    onClick={() => setTxType(TransactionType.OUT)}
+                    className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${txType === TransactionType.OUT ? 'bg-white text-red-700 shadow-sm' : 'text-gray-500'}`}
+                    >
+                    Cash Out (-)
+                    </button>
                 </div>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Note (Optional)</label>
-                <input
-                  type="text"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  placeholder="e.g. Lunch with client"
-                />
-              </div>
-
-              <div className="flex space-x-4">
-                 <div className="flex-1">
-                   <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-                   <input
-                    type="date"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    value={txDate}
-                    onChange={e => setTxDate(e.target.value)}
-                   />
-                 </div>
-                 <div className="flex-1">
-                   <label className="block text-xs font-medium text-gray-500 mb-1">Time</label>
-                   <input
-                    type="time"
-                    required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    value={txTime}
-                    onChange={e => setTxTime(e.target.value)}
-                   />
-                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Photo Receipt (Optional)</label>
-                <div className="flex items-center space-x-3">
-                  <label className={`cursor-pointer flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 text-sm ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <CameraIcon className="w-5 h-5 mr-2" />
-                    {isUploading ? 'Uploading...' : (attachment ? 'Change Photo' : 'Add Photo')}
-                    <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={isUploading} />
-                  </label>
-                  
-                  {isUploading && <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
-
-                  {attachment && !isUploading && (
-                    <div className="relative h-10 w-10 group">
-                      <img src={attachment} alt="Preview" className="h-10 w-10 object-cover rounded border border-gray-200" />
-                      <button 
-                        type="button" 
-                        onClick={() => setAttachment('')}
-                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs w-4 h-4 flex items-center justify-center hover:bg-red-600"
-                      >
-                        ×
-                      </button>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
+                    <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-gray-400 font-bold">₹</span>
+                    <input
+                        autoFocus
+                        type="number"
+                        step="0.01"
+                        required
+                        className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-lg font-bold text-gray-800"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        placeholder="0.00"
+                    />
                     </div>
-                  )}
                 </div>
-              </div>
 
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  type="button"
-                  onClick={() => { setShowAddModal(false); setAttachment(''); }}
-                  className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || isUploading}
-                  className={`px-6 py-2 text-white font-medium rounded-lg shadow-md transition-colors ${txType === TransactionType.IN ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} ${isSubmitting || isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {isSubmitting ? 'Saving...' : (editingTxId ? 'Update' : 'Save Transaction')}
-                </button>
-              </div>
-            </form>
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">{txType === TransactionType.IN ? 'Received From' : 'Paid To'} (Name)</label>
+                    <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={partyName}
+                    onChange={e => setPartyName(e.target.value)}
+                    placeholder={txType === TransactionType.IN ? "e.g. John Doe" : "e.g. Vendor Corp"}
+                    />
+                </div>
+
+                {/* Tagging System */}
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Tags / Categories</label>
+                    <div className="w-full px-3 py-2 border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white min-h-[42px] flex flex-wrap gap-2 items-center">
+                        {tags.map(tag => (
+                            <span key={tag} className="flex items-center bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-sm font-medium">
+                                {tag}
+                                <button
+                                    type="button"
+                                    onClick={() => removeTag(tag)}
+                                    className="ml-1 text-blue-400 hover:text-blue-900 focus:outline-none"
+                                >
+                                    <XIcon className="w-3 h-3" />
+                                </button>
+                            </span>
+                        ))}
+                        <input
+                            type="text"
+                            list="tags-suggestion-list"
+                            className="flex-1 min-w-[80px] outline-none text-sm bg-transparent"
+                            value={tagInput}
+                            onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={handleTagKeyDown}
+                            placeholder={tags.length === 0 ? "Type and press Space..." : ""}
+                        />
+                        <datalist id="tags-suggestion-list">
+                            {uniqueTags.map(tag => <option key={tag} value={tag} />)}
+                        </datalist>
+                    </div>
+                    {/* Recent/Suggested Tags Helper */}
+                    {uniqueTags.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                            {uniqueTags.slice(0, 5).map(tag => (
+                                !tags.includes(tag) && (
+                                    <button
+                                        key={tag}
+                                        type="button"
+                                        onClick={() => addSuggestedTag(tag)}
+                                        className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full transition-colors"
+                                    >
+                                        + {tag}
+                                    </button>
+                                )
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Description (Optional)</label>
+                    <input
+                    type="text"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                    placeholder="Details..."
+                    />
+                </div>
+
+                <div className="flex space-x-4">
+                    <div className="flex-1">
+                        <ModernDatePicker 
+                            label="Date"
+                            value={txDate}
+                            onChange={setTxDate}
+                        />
+                    </div>
+                    <div className="flex-1">
+                        <ModernTimePicker
+                            label="Time"
+                            value={txTime}
+                            onChange={setTxTime}
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Photo Receipt (Optional)</label>
+                    <div className="flex items-center space-x-3">
+                    <label className={`cursor-pointer flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 text-sm ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+                        <CameraIcon className="w-5 h-5 mr-2" />
+                        {isUploading ? 'Uploading...' : (attachment ? 'Change Photo' : 'Add Photo')}
+                        <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} disabled={isUploading} />
+                    </label>
+                    
+                    {isUploading && <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>}
+
+                    {attachment && !isUploading && (
+                        <div className="relative h-10 w-10 group">
+                        <img src={attachment} alt="Preview" className="h-10 w-10 object-cover rounded border border-gray-200" />
+                        <button 
+                            type="button" 
+                            onClick={() => setAttachment('')}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 text-xs w-4 h-4 flex items-center justify-center hover:bg-red-600"
+                        >
+                            <XIcon className="w-3 h-3" />
+                        </button>
+                        </div>
+                    )}
+                    </div>
+                </div>
+                </form>
+            </div>
+
+            {/* Footer */}
+            <div className="flex-none p-6 pt-2 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+                <div className="flex justify-end space-x-3">
+                    <button
+                        type="button"
+                        onClick={() => { setShowAddModal(false); setAttachment(''); }}
+                        className="px-4 py-3 text-gray-600 font-medium hover:bg-gray-200 rounded-lg flex-1 active:scale-95 transition-transform"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        form="transaction-form"
+                        disabled={isSubmitting || isUploading}
+                        className={`px-6 py-3 text-white font-bold rounded-lg shadow-md transition-all flex-[2] active:scale-95 ${txType === TransactionType.IN ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'} ${isSubmitting || isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                        {isSubmitting ? 'Saving...' : (editingTxId ? 'Update' : 'Save')}
+                    </button>
+                </div>
+            </div>
           </div>
         </div>
       )}

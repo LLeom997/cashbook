@@ -35,6 +35,8 @@ export interface Transaction {
   date: string; // ISO Date string YYYY-MM-DD
   time: string; // HH:mm
   note: string;
+  partyName?: string; // Customer or Client Name
+  category?: string; // Tag
   attachmentUrl?: string; // Base64 or URL
   createdAt: number;
 }
@@ -51,6 +53,7 @@ export interface BusinessWithTotals extends Business {
   totalOut: number;
   balance: number;
   bookCount: number;
+  books?: BookWithTotals[]; // Quick links
   isShared?: boolean; // True if the current user is not the owner
   ownerEmail?: string;
 }

@@ -92,7 +92,7 @@ export const getBusinesses = async (userId: string): Promise<BusinessWithTotals[
     .select(`
       *,
       ledgers (
-        *,
+        id, name, created_at,
         entries (amount, type)
       )
     `)
@@ -107,7 +107,7 @@ export const getBusinesses = async (userId: string): Promise<BusinessWithTotals[
         *,
         owner:profiles ( email ),
         ledgers (
-            *,
+            id, name, created_at,
             entries (amount, type)
         )
       )
@@ -134,17 +134,34 @@ export const getBusinesses = async (userId: string): Promise<BusinessWithTotals[
     let totalIn = 0;
     let totalOut = 0;
     let bookCount = 0;
+    let books: BookWithTotals[] = [];
 
     if (b.ledgers) {
       bookCount = b.ledgers.length;
-      b.ledgers.forEach((book: any) => {
-        if (book.entries) {
-          book.entries.forEach((t: any) => {
-            if (t.type === 'IN') totalIn += Number(t.amount);
-            else totalOut += Number(t.amount);
-          });
-        }
+      books = b.ledgers.map((book: any) => {
+          let bIn = 0;
+          let bOut = 0;
+          if (book.entries) {
+            book.entries.forEach((t: any) => {
+                if (t.type === 'IN') bIn += Number(t.amount);
+                else bOut += Number(t.amount);
+            });
+          }
+          totalIn += bIn;
+          totalOut += bOut;
+
+          return {
+              id: book.id,
+              businessId: b.id,
+              name: book.name,
+              createdAt: new Date(book.created_at).getTime(),
+              totalIn: bIn,
+              totalOut: bOut,
+              balance: bIn - bOut
+          };
       });
+      // Sort books by newest first
+      books.sort((a, b) => b.createdAt - a.createdAt);
     }
 
     return {
@@ -158,6 +175,7 @@ export const getBusinesses = async (userId: string): Promise<BusinessWithTotals[
       totalOut,
       balance: totalIn - totalOut,
       bookCount,
+      books, // Quick links
       isShared: !!b.isShared,
       ownerEmail: b.ownerEmail
     };
@@ -456,6 +474,8 @@ export const getTransactionsWithBalance = async (bookId: string): Promise<Transa
     date: t.date,
     time: t.time,
     note: t.note || '',
+    partyName: t.party_name,
+    category: t.category,
     attachmentUrl: t.attachment_url,
     createdAt: new Date(t.created_at).getTime()
   }));
@@ -492,6 +512,8 @@ export const addTransaction = async (tx: Omit<Transaction, 'id' | 'createdAt'>):
       date: tx.date,
       time: tx.time,
       note: tx.note,
+      party_name: tx.partyName,
+      category: tx.category,
       attachment_url: tx.attachmentUrl
     }])
     .select()
@@ -511,6 +533,8 @@ export const addTransaction = async (tx: Omit<Transaction, 'id' | 'createdAt'>):
         date: data.date,
         time: data.time,
         note: data.note,
+        partyName: data.party_name,
+        category: data.category,
         attachmentUrl: data.attachment_url,
         createdAt: new Date(data.created_at).getTime()
     },
@@ -530,6 +554,8 @@ export const updateTransaction = async (tx: Transaction): Promise<{ data: Transa
       date: tx.date,
       time: tx.time,
       note: tx.note,
+      party_name: tx.partyName,
+      category: tx.category,
       attachment_url: tx.attachmentUrl
     })
     .eq('id', tx.id)
@@ -550,6 +576,8 @@ export const updateTransaction = async (tx: Transaction): Promise<{ data: Transa
         date: data.date,
         time: data.time,
         note: data.note,
+        partyName: data.party_name,
+        category: data.category,
         attachmentUrl: data.attachment_url,
         createdAt: new Date(data.created_at).getTime()
     },
