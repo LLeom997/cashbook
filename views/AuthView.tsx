@@ -4,8 +4,8 @@ import { signInUser, signUpUser } from '../services/storage';
 
 export const AuthView = ({ onLogin }: { onLogin: () => void }) => {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('lleom23@gmail.com');
-  const [password, setPassword] = useState('LLeom@');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
